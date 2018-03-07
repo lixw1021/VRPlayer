@@ -7,7 +7,6 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
 import android.util.Pair;
-import android.view.View;
 import android.widget.ImageButton;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -19,7 +18,20 @@ import com.google.vr.sdk.widgets.video.VrVideoView.Options;
 
 import java.io.IOException;
 
+import butterknife.BindView;
+import butterknife.ButterKnife;
+import butterknife.OnClick;
+
 public class MainActivity extends Activity {
+    @BindView(R.id.seek_bar)
+    SeekBar seekBar;
+    @BindView(R.id.status_text)
+    TextView statusText;
+    @BindView(R.id.video_view)
+    VrVideoView videoWidgetView;
+    @BindView(R.id.volume_toggle)
+    ImageButton volumeToggle;
+
     private static final String TAG = MainActivity.class.getSimpleName();
 
     /**
@@ -27,18 +39,8 @@ public class MainActivity extends Activity {
      */
     private static final String STATE_IS_PAUSED = "isPaused";
     private static final String STATE_PROGRESS_TIME = "progressTime";
-    /**
-     * The video duration doesn't need to be preserved, but it is saved in this example. This allows
-     * the seekBar to be configured during {@link #onRestoreInstanceState(Bundle)} rather than waiting
-     * for the video to be reloaded and analyzed. This avoid UI jank.
-     */
     private static final String STATE_VIDEO_DURATION = "videoDuration";
 
-    /**
-     * Arbitrary constants and variable to track load status. In this example, this variable should
-     * only be accessed on the UI thread. In a real app, this variable would be code that performs
-     * some UI actions when the video is fully loaded.
-     */
     public static final int LOAD_VIDEO_STATUS_UNKNOWN = 0;
     public static final int LOAD_VIDEO_STATUS_SUCCESS = 1;
     public static final int LOAD_VIDEO_STATUS_ERROR = 2;
@@ -46,76 +48,32 @@ public class MainActivity extends Activity {
     private int loadVideoStatus = LOAD_VIDEO_STATUS_UNKNOWN;
     private static String VIDEO_URL = "http://192.168.0.106:3000/video";
 
-    /**
-     * Tracks the file to be loaded across the lifetime of this app.
-     **/
     private Uri fileUri;
-
-    /**
-     * Configuration information for the video.
-     **/
     private Options videoOptions = new Options();
-
     private VideoLoaderTask backgroundVideoLoaderTask;
-
-    /**
-     * The video view and its custom UI elements.
-     */
-    protected VrVideoView videoWidgetView;
-
-    /**
-     * Seeking UI & progress indicator. The seekBar's progress value represents milliseconds in the
-     * video.
-     */
-    private SeekBar seekBar;
-    private TextView statusText;
-
-    private ImageButton volumeToggle;
     private boolean isMuted;
-
-    /**
-     * By default, the video will start playing as soon as it is loaded. This can be changed by using
-     * {@link VrVideoView#pauseVideo()} after loading the video.
-     */
     private boolean isPaused = false;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        ButterKnife.bind(this);
 
-        seekBar = (SeekBar) findViewById(R.id.seek_bar);
         seekBar.setOnSeekBarChangeListener(new SeekBarListener());
-        statusText = (TextView) findViewById(R.id.status_text);
-
-        // Bind input and output objects for the view.
-        videoWidgetView = (VrVideoView) findViewById(R.id.video_view);
         videoWidgetView.setEventListener(new ActivityEventListener());
-
-        volumeToggle = (ImageButton) findViewById(R.id.volume_toggle);
-        volumeToggle.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                setIsMuted(!isMuted);
-            }
-        });
-
         loadVideoStatus = LOAD_VIDEO_STATUS_UNKNOWN;
-
-        // Initial launch of the app or an Activity recreation due to rotation.
         handleIntent(getIntent());
     }
 
-    /**
-     * Called when the Activity is already running and it's given a new intent.
-     */
+    @OnClick(R.id.volume_toggle)
+    void turnOnAndOffVolume() {
+        setIsMuted(!isMuted);
+    }
+
     @Override
     protected void onNewIntent(Intent intent) {
-        Log.i(TAG, this.hashCode() + ".onNewIntent()");
-        // Save the intent. This allows the getIntent() call in onCreate() to use this new Intent during
-        // future invocations.
         setIntent(intent);
-        // Load the new video.
         handleIntent(intent);
     }
 
@@ -133,10 +91,6 @@ public class MainActivity extends Activity {
         return isMuted;
     }
 
-    /**
-     * Load custom videos based on the Intent or load the default video. See the Javadoc for this
-     * class for information on generating a custom intent via adb.
-     */
     private void handleIntent(Intent intent) {
         // Determine if the Intent contains a file to load.
         if (Intent.ACTION_VIEW.equals(intent.getAction())) {
@@ -156,10 +110,7 @@ public class MainActivity extends Activity {
             fileUri = null;
         }
 
-        // Load the bitmap in a background thread to avoid blocking the UI thread. This operation can
-        // take 100s of milliseconds.
         if (backgroundVideoLoaderTask != null) {
-            // Cancel any task from a previous intent sent to this activity.
             backgroundVideoLoaderTask.cancel(true);
         }
         backgroundVideoLoaderTask = new VideoLoaderTask();
@@ -192,25 +143,19 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
-        // Prevent the view from rendering continuously when in the background.
         videoWidgetView.pauseRendering();
-        // If the video is playing when onPause() is called, the default behavior will be to pause
-        // the video and keep it paused when onResume() is called.
         isPaused = true;
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // Resume the 3D rendering.
         videoWidgetView.resumeRendering();
-        // Update the text to account for the paused video in onPause().
         updateStatusText();
     }
 
     @Override
     protected void onDestroy() {
-        // Destroy the widget and free memory.
         videoWidgetView.shutdown();
         super.onDestroy();
     }
@@ -235,16 +180,13 @@ public class MainActivity extends Activity {
         statusText.setText(status.toString());
     }
 
-    /**
-     * When the user manipulates the seek bar, update the video position.
-     */
     private class SeekBarListener implements SeekBar.OnSeekBarChangeListener {
         @Override
         public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
             if (fromUser) {
                 videoWidgetView.seekTo(progress);
                 updateStatusText();
-            } // else this was from the ActivityEventHandler.onNewFrame()'s seekBar.setProgress update.
+            }
         }
 
         @Override
@@ -256,13 +198,8 @@ public class MainActivity extends Activity {
         }
     }
 
-    /**
-     * Listen to the important events from widget.
-     */
     private class ActivityEventListener extends VrVideoEventListener {
-        /**
-         * Called by video widget on the UI thread when it's done loading the video.
-         */
+
         @Override
         public void onLoadSuccess() {
             Log.i(TAG, "Successfully loaded video " + videoWidgetView.getDuration());
@@ -271,12 +208,8 @@ public class MainActivity extends Activity {
             updateStatusText();
         }
 
-        /**
-         * Called by video widget on the UI thread on any asynchronous error.
-         */
         @Override
         public void onLoadError(String errorMessage) {
-            // An error here is normally due to being unable to decode the video format.
             loadVideoStatus = LOAD_VIDEO_STATUS_ERROR;
             Toast.makeText(
                     MainActivity.this, "Error loading video: " + errorMessage, Toast.LENGTH_LONG)
@@ -289,35 +222,25 @@ public class MainActivity extends Activity {
             togglePause();
         }
 
-        /**
-         * Update the UI every frame.
-         */
         @Override
         public void onNewFrame() {
             updateStatusText();
             seekBar.setProgress((int) videoWidgetView.getCurrentPosition());
         }
 
-        /**
-         * Make the video play in a loop. This method could also be used to move to the next video in
-         * a playlist.
-         */
         @Override
         public void onCompletion() {
             videoWidgetView.seekTo(0);
         }
     }
 
-    /**
-     * Helper class to manage threading.
-     */
+
     class VideoLoaderTask extends AsyncTask<Pair<Uri, Options>, Void, Boolean> {
         @Override
         protected Boolean doInBackground(Pair<Uri, Options>... fileInformation) {
             try {
                 if (fileInformation == null || fileInformation.length < 1
                         || fileInformation[0] == null || fileInformation[0].first == null) {
-                    // No intent was specified, so we default to playing the local stereo-over-under video.
                     Options options = new Options();
                     options.inputType = Options.TYPE_MONO;
 //          videoWidgetView.loadVideoFromAsset("vr-video.mp4", options );
@@ -326,9 +249,7 @@ public class MainActivity extends Activity {
                     videoWidgetView.loadVideo(fileInformation[0].first, fileInformation[0].second);
                 }
             } catch (IOException e) {
-                // An error here is normally due to being unable to locate the file.
                 loadVideoStatus = LOAD_VIDEO_STATUS_ERROR;
-                // Since this is a background thread, we need to switch to the main thread to show a toast.
                 videoWidgetView.post(new Runnable() {
                     @Override
                     public void run() {
@@ -339,7 +260,6 @@ public class MainActivity extends Activity {
                 });
                 Log.e(TAG, "Could not open video: " + e);
             }
-
             return true;
         }
     }
